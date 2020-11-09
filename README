@@ -1,1 +1,10 @@
-This repository is for various NodeMCU related home automation stuff
+This repository contains a thermostat override based on NodeMCU, consisting of
+two ESP8266 communicating via MQTT.
+
+* first one (relay/) drives a relay to toggle the heating in my flat
+
+* second one (dht/) measures the temperature in the coldest room
+
+* additionally there's a service on the machine where the MQTT broker is
+  running, which decides whether or not heating needs to be turned on based on
+  the readings of the sensor
