@@ -5,13 +5,18 @@
 gpio = require("gpio")
 
 screws = {
-  relay_gpio_pin = 0,
-  relay_pin_state = true, -- pin is LOW by default, which means the relay switches
+  relay_gpio_pin = 1,
+  relay_pin_state = false, -- pin is LOW by default, which means the relay is off
   tcp_server_port = 23,
-  tcp_timeout = 30 -- seconds
+  tcp_timeout = 30, -- seconds
+  button_gpio_pin = 3,
 }
 
 local log = print
+
+function toggle()
+  return do_gpio(not screws.relay_pin_state)
+end
 
 function receiver(sck, data)
   local rv = nil
@@ -23,7 +28,7 @@ function receiver(sck, data)
   elseif string.find(data, "state") == 1 then
     -- nothing
   elseif string.find(data, "toggle") == 1 then
-    do_gpio(not screws.relay_pin_state)
+    toggle()
   else
     rv = "invalid command"
   end
@@ -36,8 +41,8 @@ function receiver(sck, data)
   sck:close()
 end
 
-function do_gpio(val) -- val=false: pin off, true: on
-  gpio.write(screws.relay_gpio_pin, val and gpio.LOW or gpio.HIGH)
+function do_gpio(val) -- val=false: relay off, true: on
+  gpio.write(screws.relay_gpio_pin, val and gpio.HIGH or gpio.LOW)
   screws.relay_pin_state = val and true or false
 end
 
@@ -51,6 +56,17 @@ do -- startup
     log("Error creating server... is NodeMCU built with network support?")
     return
   end
+
+  local last
+  local function handler(level, when, eventcount)
+    last = last or when
+    if when > last + 200000 then
+      toggle()
+    end
+  end
+
+  gpio.mode(screws.button_gpio_pin, gpio.INT)
+  gpio.trig(screws.button_gpio_pin, "up", handler)
 
   sv:listen(screws.tcp_server_port, function(conn) conn:on("receive", receiver) end)
 end
