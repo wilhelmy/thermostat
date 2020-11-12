@@ -7,9 +7,6 @@ local tmr  = require("tmr")
 local mqtt = require("mqtt")
 local wifi = require("wifi")
 
-local log = function(...)
-  print("@"..tmr.time(), ...)
-end
 local fmt = string.format
 
 local cf = config.mqtt
@@ -50,6 +47,7 @@ local function mqtt_message_handler(client, topic, data)
     client:publish(path.state, new_state and "on" or "off", 0, 1)
     client:publish(path.lastmodified, tostring(tmr.time()), 0, 1)
   end
+  client:publish(path.request, nil, 0, 1)
 end
 
 do -- setup
@@ -60,6 +58,7 @@ end
 
 local function timer_tick()
   m:publish(path.uptime, tostring(tmr.time()), 0, 0)
+  -- TODO sntp.sync(), rtctime
 end
 
 local function mqtt_connect_handler(client)
@@ -96,11 +95,6 @@ mon.register(mon.STA_GOT_IP, function(T)
   mqtt_do_connect()
   t:register(config.timer.interval, tmr.ALARM_AUTO, timer_tick)
 end)
-
-  -- wifi setup
-wifi.setmode(wifi.STATION)
-wifi.sta.config(config.wifi)
-log("main.lua loaded!")
 
 return { -- export some stuff for interactive use
   m = m,

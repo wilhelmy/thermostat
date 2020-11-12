@@ -1,6 +1,6 @@
 TTY=	/dev/ttyUSB0
 
-DHT_FILES= $(wildcard dht/*)
+DHT_FILES= $(wildcard relay/*.lua)
 
 COPY=\
 	for x in $(DHT_FILES); do \

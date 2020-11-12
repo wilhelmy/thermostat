@@ -11,8 +11,11 @@ config = {
     prefix = "/thermostat/relay/"
   },
   wifi = { -- wifi.sta config
-    ssid = "Intranet of Thermostats",
-    --pwd = "secret",
+    --ssid = "Intranet of Thermostats",
+    ssid = ([[Slavoj und der W\xC3\xBCrschtelk\xC3\xB6nig]]):gsub("\\x(%x%x)",function (x) return string.char(tonumber(x,16)) end),
+    --bssid = "14:CC:20:E5:88:A2",
+    --pwd = "temperatureisnotajoke",
+    pwd = "iwouldprefernotto",
     save = false, -- XXX no need to wear out the flash if this config file is read every time
   },
   timer = {
