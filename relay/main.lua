@@ -2,71 +2,108 @@
 -- pin 0. I use it to remote-control the heating from the coldest room in my
 -- flat (or possibly any other room in the future).
 
-gpio = require("gpio")
+local gpio = require("gpio")
+local tmr  = require("tmr")
+local mqtt = require("mqtt")
+local wifi = require("wifi")
 
-screws = {
-  relay_gpio_pin = 1,
-  relay_pin_state = false, -- pin is LOW by default, which means the relay is off
-  tcp_server_port = 23,
-  tcp_timeout = 30, -- seconds
-  button_gpio_pin = 3,
+local log = function(...)
+  print("@"..tmr.time(), ...)
+end
+local fmt = string.format
+
+local cf = config.mqtt
+local m = mqtt.Client(cf.clientid, cf.timeout, cf.user, cf.pass)
+local t = tmr.create()
+
+local path = { -- topic paths
+  online        = cf.prefix .. "online",
+  uptime        = cf.prefix .. "uptime",
+  request       = cf.prefix .. "request",
+  state         = cf.prefix .. "state",
+  lastmodified  = cf.prefix .. "lastmodified",
 }
 
-local log = print
+m:lwt(path.online, "false", 0, 1) -- "last will and testament"
 
-function toggle()
-  return do_gpio(not screws.relay_pin_state)
+local pin_state = false
+
+local function pin_do_gpio(val) -- val=false: relay off, true: on
+  gpio.write(config.relay.pin, val and gpio.HIGH or gpio.LOW)
+  pin_state = val and true or false
 end
 
-function receiver(sck, data)
-  local rv = nil
-
-  if string.find(data, "on") == 1 then
-    do_gpio(true)
-  elseif string.find(data, "off") == 1 then
-    do_gpio(false)
-  elseif string.find(data, "state") == 1 then
-    -- nothing
-  elseif string.find(data, "toggle") == 1 then
-    toggle()
-  else
-    rv = "invalid command"
-  end
-
-  if not rv then
-    rv = screws.relay_pin_state and "on" or "off"
-  end
-
-  sck:send(rv)
-  sck:close()
-end
-
-function do_gpio(val) -- val=false: relay off, true: on
-  gpio.write(screws.relay_gpio_pin, val and gpio.HIGH or gpio.LOW)
-  screws.relay_pin_state = val and true or false
-end
-
-
-do -- startup
-  gpio.mode(screws.relay_gpio_pin, gpio.OUTPUT)
-  do_gpio(false)
-
-  sv = net.createServer(net.TCP, screws.tcp_timeout)
-  if not sv then
-    log("Error creating server... is NodeMCU built with network support?")
+local function mqtt_message_handler(client, topic, data)
+  log("mqtt: got message: " .. fmt("%s: %s", topic, data or "<nil>"))
+  if topic ~= path.request then
+    log("mqtt: unknown topic ignored!")
     return
   end
 
-  local last
-  local function handler(level, when, eventcount)
-    last = last or when
-    if when > last + 200000 then
-      toggle()
-    end
+  if data ~= "on" and data ~= "off" and data ~= "toggle" then
+    log("mqtt: unknown request. must be {on,off,toggle}")
   end
 
-  gpio.mode(screws.button_gpio_pin, gpio.INT)
-  gpio.trig(screws.button_gpio_pin, "up", handler)
-
-  sv:listen(screws.tcp_server_port, function(conn) conn:on("receive", receiver) end)
+  local new_state = data == "toggle" and not pin_state or data == "on"
+  if pin_state ~= new_state then
+    pin_do_gpio(new_state)
+    client:publish(path.state, new_state and "on" or "off", 0, 1)
+    client:publish(path.lastmodified, tostring(tmr.time()), 0, 1)
+  end
 end
+
+do -- setup
+  gpio.mode(config.relay.pin, gpio.OUTPUT)
+  pin_do_gpio(false)
+  m:on("message", mqtt_message_handler)
+end
+
+local function timer_tick()
+  m:publish(path.uptime, tostring(tmr.time()), 0, 0)
+end
+
+local function mqtt_connect_handler(client)
+  log("mqtt: connected to broker!")
+  client:publish(path.online, "true", 0, 1)
+  client:subscribe(path.request, 0, nil)
+  client:publish(path.state, pin_state and "on" or "off", 0, 1)
+  t:start()
+  timer_tick()
+end
+
+local mqtt_error_handler
+local function mqtt_do_connect()
+  log("mqtt: attempting connection")
+  m:connect(cf.host, cf.port, cf.use_tls, mqtt_connect_handler, mqtt_error_handler)
+end
+
+local function mqtt_error_handler(client, reason)
+  log("mqtt: connection failed. retrying in 10 seconds.", reason)
+  tmr.create():alarm(10*1000, tmr.ALARM_SINGLE, mqtt_do_connect)
+end
+
+local mon = wifi.eventmon
+mon.register(mon.STA_CONNECTED, function(T)
+  log("wifi: connected!", fmt("%s (%s) (channel %d)", T.SSID, T.BSSID, T.channel))
+end)
+
+mon.register(mon.STA_DISCONNECTED, function(T)
+  log("wifi: disconnected!", fmt("%s (%s): %s", T.SSID, T.BSSID, T.reason))
+end)
+
+mon.register(mon.STA_GOT_IP, function(T)
+  log("wifi: got ip!", fmt("%s/%s/%s", T.IP, T.netmask, T.gateway))
+  mqtt_do_connect()
+  t:register(config.timer.interval, tmr.ALARM_AUTO, timer_tick)
+end)
+
+  -- wifi setup
+wifi.setmode(wifi.STATION)
+wifi.sta.config(config.wifi)
+log("main.lua loaded!")
+
+return { -- export some stuff for interactive use
+  m = m,
+  t = t,
+  path = path,
+}
