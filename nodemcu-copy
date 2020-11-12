@@ -68,6 +68,7 @@ foreach line $file {
 }
 
 send "=file.close()\r"
+expect "> "
 
 if $interactive interact
 
