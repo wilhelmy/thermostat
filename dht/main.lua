@@ -5,10 +5,8 @@ local tmr = require("tmr")
 local mqtt = require("mqtt")
 local wifi = require("wifi")
 local dht = require("dht")
+local rtctime = require("rtctime")
 
-local log = function(...)
-  print("@"..tmr.time(), ...)
-end
 local fmt = string.format
 
 local cf = config.mqtt

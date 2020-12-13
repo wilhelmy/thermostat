@@ -27,5 +27,12 @@ config = {
   dht = {
     pins = {5, 6}, -- pins on which dht sensors are attached
   },
+  rtctime = {
+    enable = true, -- set to false to use time.now() instead, which is useless if deep sleep is enabled
+    sntp = {
+      servers = nil, -- nil (use nodemcu ntp pool) or table with servers
+      autorepeat = true, -- set to false if you manually call it
+    }
+  },
   dsleep_seconds = 30, -- set to 0 to disable deep sleep
 }
